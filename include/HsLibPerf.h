@@ -16,7 +16,8 @@ extern "C" {
 enum HsPerfCounter {
   /* hw counters */
   HS_PERF_COUNT_HW_CPU_CYCLES,
-  HS_PERF_COUNT_HW_INSTRUCTIONS
+  HS_PERF_COUNT_HW_INSTRUCTIONS,
+  HS_PERF_COUNT_HW_REF_CPU_CYCLES
 };
 
 
@@ -29,7 +30,6 @@ static inline int HsLibPerfOpen(enum HsPerfCounter c) {
 
   pe.size = sizeof(struct perf_event_attr);
   pe.disabled = 1;
-  pe.exclude_kernel = 1;
   pe.exclude_hv = 1;
 
   switch (c) {
@@ -41,6 +41,11 @@ static inline int HsLibPerfOpen(enum HsPerfCounter c) {
   case HS_PERF_COUNT_HW_INSTRUCTIONS:
     pe.type = PERF_TYPE_HARDWARE;
     pe.config = PERF_COUNT_HW_INSTRUCTIONS;
+    break;
+
+  case HS_PERF_COUNT_HW_REF_CPU_CYCLES:
+    pe.type = PERF_TYPE_HARDWARE;
+    pe.config = PERF_COUNT_HW_REF_CPU_CYCLES;
     break;
 
   default:

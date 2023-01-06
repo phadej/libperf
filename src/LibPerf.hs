@@ -25,8 +25,9 @@ import Foreign.C.Types   (CInt (..))
 --
 -- (Only subset is exposed, ask if you need more).
 data PerfCounter
-    = HwCpuCycles
-    | HwInstructions
+    = HwCpuCycles    -- ^ Total cycles.  Be wary of what happens during CPU frequency scaling.
+    | HwInstructions -- ^ Retired instructions.  Be careful, these can be affected by various issues, most notably hardware interrupt counts.
+    | HwRefCpuCycles -- ^ Total cycles; not affected by CPU frequency scaling.
   deriving (Eq, Show)
 
 newtype PerfHandle = PerfHandle CInt
@@ -49,6 +50,7 @@ perfOpen c = fmap PerfHandle (throwErrnoIf (< 0) "perf_even_open" (cLibPerfOpen 
     c' = case c of
         HwCpuCycles    -> cLibPerf_HW_CPU_CYCLES
         HwInstructions -> cLibPerf_HW_INSTRUCTIONS
+        HwRefCpuCycles -> cLibPerf_HW_REF_CPU_CYCLES
 
 -- | Close performance counter.
 perfClose :: PerfHandle -> IO ()
@@ -85,6 +87,9 @@ foreign import capi "HsLibPerf.h value HS_PERF_COUNT_HW_CPU_CYCLES"
 
 foreign import capi "HsLibPerf.h value HS_PERF_COUNT_HW_INSTRUCTIONS"
     cLibPerf_HW_INSTRUCTIONS :: CInt
+
+foreign import capi "HsLibPerf.h value HS_PERF_COUNT_HW_REF_CPU_CYCLES"
+    cLibPerf_HW_REF_CPU_CYCLES :: CInt
 
 foreign import capi safe "HsLibPerf.h HsLibPerfOpen"
     cLibPerfOpen :: CInt -> IO CInt
