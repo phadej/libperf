@@ -1,2 +1,4 @@
 packages: .
+packages: tasty-perfbench
+
 tests: True

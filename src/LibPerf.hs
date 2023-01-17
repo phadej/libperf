@@ -44,7 +44,7 @@ withPerf c = bracket (perfOpen c) perfClose
 -- Counters are opened disabled. Use 'perfEnable' to enable them.
 --
 perfOpen :: PerfCounter -> IO PerfHandle
-perfOpen c = fmap PerfHandle (throwErrnoIf (< 0) "perf_even_open" (cLibPerfOpen c'))
+perfOpen c = fmap PerfHandle (throwErrnoIf (< 0) "perf_event_open" (cLibPerfOpen c'))
   where
     c' :: CInt
     c' = case c of
