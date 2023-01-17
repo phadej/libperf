@@ -8,9 +8,9 @@
 #
 # For more information, see https://github.com/haskell-CI/haskell-ci
 #
-# version: 0.15.20221225
+# version: 0.15.20230115
 #
-# REGENDATA ("0.15.20221225",["github","cabal.project"])
+# REGENDATA ("0.15.20230115",["github","cabal.project"])
 #
 name: Haskell-CI
 on:
@@ -47,10 +47,10 @@ jobs:
             compilerVersion: 9.0.2
             setup-method: ghcup
             allow-failure: false
-          - compiler: ghc-8.10.4
+          - compiler: ghc-8.10.7
             compilerKind: ghc
-            compilerVersion: 8.10.4
-            setup-method: hvr-ppa
+            compilerVersion: 8.10.7
+            setup-method: ghcup
             allow-failure: false
           - compiler: ghc-8.8.4
             compilerKind: ghc
@@ -196,13 +196,14 @@ jobs:
           chmod a+x $HOME/.cabal/bin/cabal-plan
           cabal-plan --version
       - name: checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           path: source
       - name: initial cabal.project for sdist
         run: |
           touch cabal.project
           echo "packages: $GITHUB_WORKSPACE/source/." >> cabal.project
+          echo "packages: $GITHUB_WORKSPACE/source/tasty-perfbench" >> cabal.project
           cat cabal.project
       - name: sdist
         run: |
@@ -216,15 +217,20 @@ jobs:
         run: |
           PKGDIR_libperf="$(find "$GITHUB_WORKSPACE/unpacked" -maxdepth 1 -type d -regex '.*/libperf-[0-9.]*')"
           echo "PKGDIR_libperf=${PKGDIR_libperf}" >> "$GITHUB_ENV"
+          PKGDIR_tasty_perfbench="$(find "$GITHUB_WORKSPACE/unpacked" -maxdepth 1 -type d -regex '.*/tasty-perfbench-[0-9.]*')"
+          echo "PKGDIR_tasty_perfbench=${PKGDIR_tasty_perfbench}" >> "$GITHUB_ENV"
           rm -f cabal.project cabal.project.local
           touch cabal.project
           touch cabal.project.local
           echo "packages: ${PKGDIR_libperf}" >> cabal.project
+          echo "packages: ${PKGDIR_tasty_perfbench}" >> cabal.project
           if [ $((HCNUMVER >= 80200)) -ne 0 ] ; then echo "package libperf" >> cabal.project ; fi
+          if [ $((HCNUMVER >= 80200)) -ne 0 ] ; then echo "    ghc-options: -Werror=missing-methods" >> cabal.project ; fi
+          if [ $((HCNUMVER >= 80200)) -ne 0 ] ; then echo "package tasty-perfbench" >> cabal.project ; fi
           if [ $((HCNUMVER >= 80200)) -ne 0 ] ; then echo "    ghc-options: -Werror=missing-methods" >> cabal.project ; fi
           cat >> cabal.project <<EOF
           EOF
-          $HCPKG list --simple-output --names-only | perl -ne 'for (split /\s+/) { print "constraints: $_ installed\n" unless /^(libperf)$/; }' >> cabal.project.local
+          $HCPKG list --simple-output --names-only | perl -ne 'for (split /\s+/) { print "constraints: $_ installed\n" unless /^(libperf|tasty-perfbench)$/; }' >> cabal.project.local
           cat cabal.project
           cat cabal.project.local
       - name: dump install plan
@@ -232,7 +238,7 @@ jobs:
           $CABAL v2-build $ARG_COMPILER $ARG_TESTS $ARG_BENCH --dry-run all
           cabal-plan
       - name: cache
-        uses: actions/cache@v2
+        uses: actions/cache@v3
         with:
           key: ${{ runner.os }}-${{ matrix.compiler }}-${{ github.sha }}
           path: ~/.cabal/store
@@ -253,6 +259,8 @@ jobs:
       - name: cabal check
         run: |
           cd ${PKGDIR_libperf} || false
+          ${CABAL} -vnormal check
+          cd ${PKGDIR_tasty_perfbench} || false
           ${CABAL} -vnormal check
       - name: haddock
         run: |
