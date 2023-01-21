@@ -25,9 +25,13 @@ import Foreign.C.Types   (CInt (..))
 --
 -- (Only subset is exposed, ask if you need more).
 data PerfCounter
-    = HwCpuCycles    -- ^ Total cycles.  Be wary of what happens during CPU frequency scaling.
-    | HwInstructions -- ^ Retired instructions.  Be careful, these can be affected by various issues, most notably hardware interrupt counts.
-    | HwRefCpuCycles -- ^ Total cycles; not affected by CPU frequency scaling.
+    = HwCpuCycles           -- ^ Total cycles.  Be wary of what happens during CPU frequency scaling.
+    | HwInstructions        -- ^ Retired instructions.  Be careful, these can be affected by various issues, most notably hardware interrupt counts.
+    | HwCacheReferences     -- ^ Cache accesses.
+    | HwCacheMisses         -- ^ Cache misses.
+    | HwBranchInstructions  -- ^ Retired branch instructions.
+    | HwBranchMisses        -- ^ Mispredicted branch instructions.
+    | HwRefCpuCycles        -- ^ Total cycles; not affected by CPU frequency scaling.
   deriving (Eq, Show)
 
 newtype PerfHandle = PerfHandle CInt
@@ -48,9 +52,13 @@ perfOpen c = fmap PerfHandle (throwErrnoIf (< 0) "perf_event_open" (cLibPerfOpen
   where
     c' :: CInt
     c' = case c of
-        HwCpuCycles    -> cLibPerf_HW_CPU_CYCLES
-        HwInstructions -> cLibPerf_HW_INSTRUCTIONS
-        HwRefCpuCycles -> cLibPerf_HW_REF_CPU_CYCLES
+        HwCpuCycles          -> cLibPerf_HW_CPU_CYCLES
+        HwInstructions       -> cLibPerf_HW_INSTRUCTIONS
+        HwCacheReferences    -> cLibPerf_HW_CACHE_REFERENCES
+        HwCacheMisses        -> cLibPerf_HW_CACHE_MISSES
+        HwBranchInstructions -> cLibPerf_HW_BRANCH_INSTRUCTIONS
+        HwBranchMisses       -> cLibPerf_HW_BRANCH_MISSES
+        HwRefCpuCycles       -> cLibPerf_HW_REF_CPU_CYCLES
 
 -- | Close performance counter.
 perfClose :: PerfHandle -> IO ()
@@ -87,6 +95,18 @@ foreign import capi "HsLibPerf.h value HS_PERF_COUNT_HW_CPU_CYCLES"
 
 foreign import capi "HsLibPerf.h value HS_PERF_COUNT_HW_INSTRUCTIONS"
     cLibPerf_HW_INSTRUCTIONS :: CInt
+
+foreign import capi "HsLibPerf.h value HS_PERF_COUNT_HW_CACHE_REFERENCES"
+    cLibPerf_HW_CACHE_REFERENCES :: CInt
+
+foreign import capi "HsLibPerf.h value HS_PERF_COUNT_HW_CACHE_MISSES"
+    cLibPerf_HW_CACHE_MISSES :: CInt
+
+foreign import capi "HsLibPerf.h value HS_PERF_COUNT_HW_BRANCH_INSTRUCTIONS"
+    cLibPerf_HW_BRANCH_INSTRUCTIONS :: CInt
+
+foreign import capi "HsLibPerf.h value HS_PERF_COUNT_HW_BRANCH_MISSES"
+    cLibPerf_HW_BRANCH_MISSES :: CInt
 
 foreign import capi "HsLibPerf.h value HS_PERF_COUNT_HW_REF_CPU_CYCLES"
     cLibPerf_HW_REF_CPU_CYCLES :: CInt
