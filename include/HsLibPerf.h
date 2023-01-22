@@ -29,12 +29,18 @@ static inline int HsPerfEventOpen(struct perf_event_attr *attr, pid_t pid, int c
   return syscall(SYS_perf_event_open, attr, pid, cpu, group_fd, flags);
 }
 
-static inline int HsLibPerfOpen(enum HsPerfCounter c) {
+static inline int HsLibPerfOpen(enum HsPerfCounter c, int group_fd, int format_group) {
+  unsigned long flags = 0;
+
   struct perf_event_attr pe = {0};
 
   pe.size = sizeof(struct perf_event_attr);
   pe.disabled = 1;
   pe.exclude_hv = 1;
+
+  if (format_group) {
+    pe.read_format = PERF_FORMAT_GROUP;
+  }
 
   switch (c) {
     case HS_PERF_COUNT_HW_CPU_CYCLES:
@@ -76,26 +82,30 @@ static inline int HsLibPerfOpen(enum HsPerfCounter c) {
     return EINVAL;
   }
 
-  return HsPerfEventOpen(&pe, 0, -1, -1, 0);
+  return HsPerfEventOpen(&pe, 0, -1, group_fd, flags);
 };
 
 static inline uint64_t HsLibPerfRead(int fd) {
   ssize_t res = 0;
   uint64_t count = 0;
-  res = read(fd, &count, sizeof(count));
+  ssize_t r = read(fd, &count, sizeof(count)); /* we ignore errors here */
   return count;
 }
 
+static inline int HsLibPerfRawRead(int fd, int count, uint64_t *values) {
+  return read(fd, values, sizeof(uint64_t) * count);
+}
+
 static inline int HsLibPerfEnable(int fd) {
-  ioctl(fd, PERF_EVENT_IOC_ENABLE, 0);
+  ioctl(fd, PERF_EVENT_IOC_ENABLE, PERF_IOC_FLAG_GROUP);
 }
 
 static inline int HsLibPerfDisable(int fd) {
-  ioctl(fd, PERF_EVENT_IOC_DISABLE, 0);
+  ioctl(fd, PERF_EVENT_IOC_DISABLE, PERF_IOC_FLAG_GROUP);
 }
 
 static inline int HsLibPerfReset(int fd) {
-  ioctl(fd, PERF_EVENT_IOC_RESET, 0);
+  ioctl(fd, PERF_EVENT_IOC_RESET, PERF_IOC_FLAG_GROUP);
 }
 
 static inline int HsLibPerfHasCapPerfMon() {
