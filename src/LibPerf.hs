@@ -1,4 +1,5 @@
-{-# LANGUAGE CApiFFI #-}
+{-# LANGUAGE CApiFFI    #-}
+{-# LANGUAGE RankNTypes #-}
 module LibPerf (
     -- * Performance counters
     PerfCounter (..),
@@ -12,14 +13,34 @@ module LibPerf (
     -- ** Low-level primitives
     perfOpen,
     perfClose,
+    -- * Group interface
+    PerfGroupHandle,
+    withPerfGroup,
+    perfGroupRead,
+    perfGroupEnable,
+    perfGroupDisable,
+    perfGroupReset,
+    -- ** Low-level primitives
+    perfGroupOpen,
+    perfGroupClose,
     -- * Capability check
     perfHasCapability,
 ) where
 
-import Control.Exception (bracket)
-import Data.Word         (Word64)
-import Foreign.C.Error   (throwErrnoIf, throwErrnoIf_)
-import Foreign.C.Types   (CInt (..))
+import Prelude (IO, Functor (fmap), Maybe (..), Monad (..), Int, Bool, Eq, (==), (/=), (<), Show, ($), fail, fromIntegral, (+), snd, (*))
+import Data.Traversable (Traversable (traverse))
+import Control.Applicative (Applicative(pure, (<*>)))
+import Control.Exception     (bracket)
+import Control.Monad         (unless)
+import Data.Foldable         (traverse_)
+import Data.IORef            (modifyIORef', newIORef, readIORef, writeIORef)
+import Data.Traversable      (mapAccumL)
+import Data.Word             (Word64)
+import Foreign.C.Error       (throwErrnoIf, throwErrnoIf_)
+import Foreign.C.Types       (CInt (..))
+import Foreign.Marshal.Alloc (allocaBytes)
+import Foreign.Marshal.Array (peekArray)
+import Foreign.Ptr           (Ptr)
 
 -- | Available performance counters.
 --
@@ -48,10 +69,10 @@ withPerf c = bracket (perfOpen c) perfClose
 -- Counters are opened disabled. Use 'perfEnable' to enable them.
 --
 perfOpen :: PerfCounter -> IO PerfHandle
-perfOpen c = fmap PerfHandle (throwErrnoIf (< 0) "perf_event_open" (cLibPerfOpen c'))
-  where
-    c' :: CInt
-    c' = case c of
+perfOpen c = fmap PerfHandle (throwErrnoIf (< 0) "perf_event_open" (cLibPerfOpen (perfCounterToCInt c) (-1) 0))
+
+perfCounterToCInt :: PerfCounter -> CInt
+perfCounterToCInt c = case c of
         HwCpuCycles          -> cLibPerf_HW_CPU_CYCLES
         HwInstructions       -> cLibPerf_HW_INSTRUCTIONS
         HwCacheReferences    -> cLibPerf_HW_CACHE_REFERENCES
@@ -87,7 +108,145 @@ perfHasCapability = do
     return (i /= 0)
 
 -------------------------------------------------------------------------------
--- FFI imports
+-- Group
+-------------------------------------------------------------------------------
+
+data PerfGroupHandle f = PerfGroupHandle !CInt !Int (f CInt)
+
+-- | (Morally a) bracket of 'perfGroupOpen' and 'perfGroupClose'.
+--
+withPerfGroup :: Traversable t => t PerfCounter -> (PerfGroupHandle t -> IO r) -> IO r
+withPerfGroup cs0 kont = do
+    gfdRef <- newIORef Nothing
+    cntRef <- newIORef 0
+
+    let acquire :: PerfCounter -> IO CInt
+        acquire c = do
+            mgfd <- readIORef gfdRef
+            case mgfd of
+                Nothing -> do
+                    fd <- throwErrnoIf (< 0) "perf_event_open" (cLibPerfOpen (perfCounterToCInt c) (-1) 1)
+                    writeIORef gfdRef (Just fd)
+                    modifyIORef' cntRef (1 +)
+                    return fd
+                Just gfd -> do
+                    fd <- throwErrnoIf (< 0) "perf_event_open" (cLibPerfOpen (perfCounterToCInt c) gfd 0)
+                    modifyIORef' cntRef (1 +)
+                    return fd
+
+        release :: CInt -> IO ()
+        release fd = throwErrnoIf_ (< 0) "close" (cLibPerfClose fd)
+
+    let go :: PerfCounter -> Managed CInt
+        go c = Managed (bracket (acquire c) release)
+
+    with (traverse go cs0) $ \fds -> do
+        mgfd <- readIORef gfdRef
+        case mgfd of
+            Nothing -> fail "Empty traversable in withPerfGroup"
+            Just gfd -> do
+                len <- readIORef cntRef
+                kont (PerfGroupHandle gfd len fds)
+
+-- | Open performance counter group.
+perfGroupOpen :: Traversable t => t PerfCounter -> IO (PerfGroupHandle t)
+perfGroupOpen cs = do
+    gfdRef <- newIORef Nothing
+    cntRef <- newIORef 0
+
+    let acquire :: PerfCounter -> IO CInt
+        acquire c = do
+            mgfd <- readIORef gfdRef
+            case mgfd of
+                Nothing -> do
+                    fd <- throwErrnoIf (< 0) "perf_event_open" (cLibPerfOpen (perfCounterToCInt c) (-1) 1)
+                    writeIORef gfdRef (Just fd)
+                    modifyIORef' cntRef (1 +)
+                    return fd
+                Just gfd -> do
+                    fd <- throwErrnoIf (< 0) "perf_event_open" (cLibPerfOpen (perfCounterToCInt c) gfd 0)
+                    modifyIORef' cntRef (1 +)
+                    return fd
+
+    fds <- traverse acquire cs
+    mgfd <- readIORef gfdRef
+    case mgfd of
+        Nothing -> fail "Empty traversable in perfGroupOpen"
+        Just gfd -> do
+            len <- readIORef cntRef
+            return (PerfGroupHandle gfd len fds)
+
+-- | Close performance counter group.
+perfGroupClose :: Traversable t => PerfGroupHandle t -> IO ()
+perfGroupClose (PerfGroupHandle _ _ fds) = traverse_ cLibPerfClose fds
+
+-- | Read the values of the performance counter group.
+perfGroupRead :: Traversable t => PerfGroupHandle t -> IO (t Word64)
+perfGroupRead (PerfGroupHandle h len fds) =
+    allocaBytes (8 * len1) $ \ptr -> do
+        r <- throwErrnoIf (< 0) "read" $ cLibPerfRawRead h (fromIntegral len1) ptr
+        unless (fromIntegral r == 8 * len1) $ fail "read: didn't read enough"
+        res <- peekArray (1 + len) ptr
+        case res of
+            []   -> fail "perfGroupRead: panic peekArray returned empty list"
+            n:xs -> do
+                unless (fromIntegral n == len) $ fail "read: less than expected counters"
+                return $ snd (mapAccumL fill xs fds)
+  where
+    len1 :: Int
+    len1 = len + 1
+
+    fill :: [Word64] -> a -> ([Word64], Word64)
+    fill []     _ = ([], 0)
+    fill (w:ws) _ = (ws, w)
+
+-- | Enable performance counter group.
+perfGroupEnable :: PerfGroupHandle t -> IO ()
+perfGroupEnable (PerfGroupHandle h _ _) = throwErrnoIf_ (< 0) "ioctl" (cLibPerfEnable h)
+
+-- | Disable performance counter group.
+perfGroupDisable :: PerfGroupHandle t -> IO ()
+perfGroupDisable (PerfGroupHandle h _ _) = throwErrnoIf_ (< 0) "ioctl" (cLibPerfDisable h)
+
+-- | Reset performance counter group.
+perfGroupReset :: PerfGroupHandle t -> IO ()
+perfGroupReset (PerfGroupHandle h _ _) = throwErrnoIf_ (< 0) "ioctl" (cLibPerfReset h)
+
+-------------------------------------------------------------------------------
+-- Managed
+-------------------------------------------------------------------------------
+
+-- from https://hackage.haskell.org/package/managed
+-- (c) Gabriella Gonzalez under BSD-3-Clause
+newtype Managed a = Managed { (>>-) :: forall r . (a -> IO r) -> IO r }
+
+instance Functor Managed where
+    fmap f mx = Managed $ \k ->
+        mx >>- \x ->
+        k (f x)
+
+instance Applicative Managed where
+    pure r    = Managed $ \k ->
+        k r
+
+    mf <*> mx = Managed $ \k->
+        mf >>- \f ->
+        mx >>- \x ->
+        k (f x)
+
+instance Monad Managed where
+    return = pure
+
+    ma >>= f = Managed $ \k->
+        ma  >>- \a ->
+        f a >>- \b ->
+        k b
+
+with :: Managed a -> (a -> IO r) -> IO r
+with m = (>>-) m
+
+-------------------------------------------------------------------------------
+-- FFI imports: values
 -------------------------------------------------------------------------------
 
 foreign import capi "HsLibPerf.h value HS_PERF_COUNT_HW_CPU_CYCLES"
@@ -111,17 +270,25 @@ foreign import capi "HsLibPerf.h value HS_PERF_COUNT_HW_BRANCH_MISSES"
 foreign import capi "HsLibPerf.h value HS_PERF_COUNT_HW_REF_CPU_CYCLES"
     cLibPerf_HW_REF_CPU_CYCLES :: CInt
 
+-------------------------------------------------------------------------------
+-- FFI imports: procedures
+-------------------------------------------------------------------------------
+
 foreign import capi safe "HsLibPerf.h HsLibPerfOpen"
-    cLibPerfOpen :: CInt -> IO CInt
+    cLibPerfOpen :: CInt -> CInt -> CInt -> IO CInt
 
 foreign import capi safe "HsLibPerf.h HsLibPerfRead"
     cLibPerfRead :: CInt -> IO Word64
 
-foreign import capi safe "HsLibPerf.h HsLibPerfEnable"
-    cLibPerfEnable :: CInt -> IO CInt
+foreign import capi safe "HsLibPerf.h HsLibPerfRawRead"
+    cLibPerfRawRead :: CInt -> CInt -> Ptr Word64 -> IO CInt
 
 foreign import capi safe "HsLibPerf.h HsLibPerfReset"
     cLibPerfReset :: CInt -> IO CInt
+
+-- Enable and disable are unsafe to make RTS do less in between.
+foreign import capi safe "HsLibPerf.h HsLibPerfEnable"
+    cLibPerfEnable :: CInt -> IO CInt
 
 foreign import capi safe "HsLibPerf.h HsLibPerfDisable"
     cLibPerfDisable :: CInt -> IO CInt

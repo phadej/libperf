@@ -1,7 +1,7 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveDataTypeable #-}
-{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -74,13 +74,6 @@ import System.IO ( Handle, utf8, hClose, hSetBuffering, hPutStrLn, openFile, std
 import System.IO.Unsafe ( unsafePerformIO )
 import System.Mem ( performGC )
 import Text.Printf ( printf )
-
-#if !MIN_VERSION_base(4,8,0)
-import Data.Monoid (Monoid(..))
-#endif
-#if MIN_VERSION_base(4,9,0)
-import Data.Semigroup (Semigroup(..))
-#endif
 import qualified Data.IntMap.Strict as IM
 import Data.IntMap.Strict (IntMap)
 import Data.Sequence (Seq, (<|))
@@ -101,10 +94,33 @@ import Test.Tasty.Runners
 
 import System.IO.CodePage (withCP65001)
 
+#if !MIN_VERSION_base(4,11,0)
+import Data.Semigroup (Semigroup(..))
+#endif
+
 #ifdef MIN_VERSION_libperf
 import qualified LibPerf
-import qualified Math.Regression.Simple as Regr
 #endif
+
+data R a = R
+    { rInstructions       :: a
+    , rBranchInstructions :: a
+    , rBranchMisses       :: a
+    , rCacheReferences    :: a
+    , rCacheMisses        :: a
+    }
+  deriving (Functor, Foldable, Traversable)
+
+instance Applicative R where
+    pure x = R x x x x x
+
+    R f1 f2 f3 f4 f5 <*> R x1 x2 x3 x4 x5 =
+        R (f1 x1) (f2 x2) (f3 x3) (f4 x4) (f5 x5)
+        
+perfGroupHandle :: LibPerf.PerfGroupHandle R
+perfGroupHandle = unsafePerformIO $
+    LibPerf.perfGroupOpen (R LibPerf.HwInstructions LibPerf.HwBranchInstructions LibPerf.HwBranchMisses LibPerf.HwCacheReferences LibPerf.HwCacheMisses)
+{-# OPAQUE perfGroupHandle #-}
 
 data BenchMode = Instructions -- ^ Measure CPU time.
 
@@ -193,14 +209,59 @@ showCount i
   where
     t = word64ToDouble i
 
+showBranches :: Word64 -> Word64 -> String
+showBranches i j
+  | t < 995   = printf "%2.0f%% = %3.0f / %3.0f  branch misses"  r s          t
+  | t < 995e1 = printf "%2.0f%% = %4.2f / %4.2f Kbranch misses"  r (s / 1e3)  (t / 1e3)
+  | t < 995e2 = printf "%2.0f%% = %4.1f / %4.1f Kbranch misses"  r (s / 1e3)  (t / 1e3)
+  | t < 995e3 = printf "%2.0f%% = %3.0f / %3.0f  Kbranch misses" r (s / 1e3)  (t / 1e3)
+  | t < 995e4 = printf "%2.0f%% = %4.2f / %4.2f Mbranch misses"  r (s / 1e6)  (t / 1e6)
+  | t < 995e5 = printf "%2.0f%% = %4.1f / %4.1f Mbranch misses"  r (s / 1e6)  (t / 1e6)
+  | t < 995e6 = printf "%2.0f%% = %3.0f / %3.0f  Mbranch misses" r (s / 1e6)  (t / 1e6)
+  | t < 995e7 = printf "%2.0f%% = %4.2f / %4.2f Gbranch misses"  r (s / 1e9)  (t / 1e9)
+  | t < 995e8 = printf "%2.0f%% = %4.1f / %4.1f Gbranch misses"  r (s / 1e9)  (t / 1e9)
+  | t < 995e9 = printf "%2.0f%% = %3.0f / %3.0f  Gbranch misses" r (s / 1e9)  (t / 1e9)
+  | otherwise = printf "%2.0f%% = %4.3f / %4.3f Tbranch misses"  r (s / 1e12) (t / 1e12)
+  where
+    t = word64ToDouble i
+    s = word64ToDouble j
+    r = s / (max 1 t)
+
+showCaches :: Word64 -> Word64 -> String
+showCaches i j
+  | t < 995   = printf "%2.0f%% = %3.0f / %3.0f  cache misses"  r s          t
+  | t < 995e1 = printf "%2.0f%% = %4.2f / %4.2f Kcache misses"  r (s / 1e3)  (t / 1e3)
+  | t < 995e2 = printf "%2.0f%% = %4.1f / %4.1f Kcache misses"  r (s / 1e3)  (t / 1e3)
+  | t < 995e3 = printf "%2.0f%% = %3.0f / %3.0f  Kcache misses" r (s / 1e3)  (t / 1e3)
+  | t < 995e4 = printf "%2.0f%% = %4.2f / %4.2f Mcache misses"  r (s / 1e6)  (t / 1e6)
+  | t < 995e5 = printf "%2.0f%% = %4.1f / %4.1f Mcache misses"  r (s / 1e6)  (t / 1e6)
+  | t < 995e6 = printf "%2.0f%% = %3.0f / %3.0f  Mcache misses" r (s / 1e6)  (t / 1e6)
+  | t < 995e7 = printf "%2.0f%% = %4.2f / %4.2f Gcache misses"  r (s / 1e9)  (t / 1e9)
+  | t < 995e8 = printf "%2.0f%% = %4.1f / %4.1f Gcache misses"  r (s / 1e9)  (t / 1e9)
+  | t < 995e9 = printf "%2.0f%% = %3.0f / %3.0f  Gcache misses" r (s / 1e9)  (t / 1e9)
+  | otherwise = printf "%2.0f%% = %4.3f / %4.3f Tcache misses"  r (s / 1e12) (t / 1e12)
+  where
+    t = word64ToDouble i
+    s = word64ToDouble j
+    r = 100 * s / (max 1 t)
+
 data Measurement = Measurement
   { measInstructions :: !Word64 -- ^ instructions count
+  , measBranchTotal  :: !Word64
+  , measBranchMisses :: !Word64
+  , measCacheTotal   :: !Word64
+  , measCacheMisses  :: !Word64
   } deriving (Show, Read)
 
 type Estimate = Measurement
 
 prettyEstimate :: Estimate -> String
 prettyEstimate m = showCount (measInstructions m)
+
+prettyExtras :: Estimate -> String
+prettyExtras m =
+    "\n" ++ showBranches (measBranchTotal m)  (measBranchMisses m) ++
+    "\n" ++ showCaches (measCacheTotal m)  (measCacheMisses m)
 
 data WithLoHi a = WithLoHi
   !a      -- payload
@@ -210,47 +271,50 @@ data WithLoHi a = WithLoHi
 
 measure :: BenchMode -> Benchmarkable -> IO Measurement
 #ifdef MIN_VERSION_libperf
-measure _benchMode (Benchmarkable act) = LibPerf.withPerf LibPerf.HwInstructions $ \h -> do
-  -- force it once.
+measure _benchMode (Benchmarkable act) = do
+  -- force it twice, to warm up caches and branch predictor.
+  act
   act
 
   -- run once, twice and thrice
   -- and to a regression
   -- to cut off as much of framework effect as possible.
+  LibPerf.perfGroupReset perfGroupHandle
   performGC
-  LibPerf.perfReset h
-  LibPerf.perfEnable h
+  LibPerf.perfGroupEnable perfGroupHandle
   act
-  LibPerf.perfDisable h
-  instructions1 <- LibPerf.perfRead h
+  LibPerf.perfGroupDisable perfGroupHandle
+  result1 <- LibPerf.perfGroupRead perfGroupHandle
 
+  LibPerf.perfGroupReset perfGroupHandle
   performGC
-  LibPerf.perfReset h
-  LibPerf.perfEnable h
+  LibPerf.perfGroupEnable perfGroupHandle
   act
   act
-  LibPerf.perfDisable h
-  instructions2 <- LibPerf.perfRead h
+  LibPerf.perfGroupDisable perfGroupHandle
+  result2 <- LibPerf.perfGroupRead perfGroupHandle
 
-  performGC
-  LibPerf.perfReset h
-  LibPerf.perfEnable h
-  act
-  act
-  act
-  LibPerf.perfDisable h
-  instructions3 <- LibPerf.perfRead h
+  let monus :: Word64 -> Word64 -> Word64
+      monus a b = if a > b then a - b else 0
 
-  let dat = [(1,instructions1),(2,instructions2),(3,instructions3)]
-  let Regr.V2 res1 _res2 = Regr.linear (\(x,y) -> (word64ToDouble x, word64ToDouble y)) dat
-  let instructions = if res1 < 0 then 0 else truncate res1
+  let diff = monus <$> result2 <*> result1
 
   let meas = Measurement
-        { measInstructions = instructions
+        { measInstructions = rInstructions diff
+        , measBranchTotal  = rBranchInstructions diff
+        , measBranchMisses = rBranchMisses diff
+        , measCacheTotal   = rCacheReferences diff
+        , measCacheMisses  = rCacheMisses diff
         }
   pure $! meas
 #else
-measure _ _ = pure Measurement { measInstructions = 0 }
+measure _ _ = pure Measurement
+        { measInstructions = 0
+        , measBranchTotal  = 0
+        , measBranchMisses = 0
+        , measCacheTotal   = 0
+        , measCacheMisses  = 0
+        }
 #endif
 
 instance IsTest Benchmarkable where
@@ -738,7 +802,7 @@ consoleBenchReporter = modifyConsoleReporter [Option (Proxy :: Proxy (Maybe Base
     Nothing  -> r
     Just (WithLoHi est lowerBound upperBound) ->
       (if isAcceptable then id else forceFail)
-      r { resultDescription = pretty est ++ bcompareMsg ++ formatSlowDown mSlowDown }
+      r { resultDescription = pretty est ++ bcompareMsg ++ formatSlowDown mSlowDown ++ prettyExtras est }
       where
         isAcceptable = isAcceptableVsBaseline && isAcceptableVsBcompare
         mSlowDown = compareVsBaseline baseline name est
@@ -812,18 +876,12 @@ appendUnique None a = a
 appendUnique a None = a
 appendUnique _ _ = NotUnique
 
-#if MIN_VERSION_base(4,9,0)
 instance Semigroup (Unique a) where
   (<>) = appendUnique
-#endif
 
 instance Monoid (Unique a) where
   mempty = None
-#if MIN_VERSION_base(4,9,0)
   mappend = (<>)
-#else
-  mappend = appendUnique
-#endif
 
 modifyConsoleReporter
     :: [OptionDescription]

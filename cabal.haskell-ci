@@ -1,2 +1,3 @@
 apt: libcap-dev
 branches: master
+jobs-selection: any
