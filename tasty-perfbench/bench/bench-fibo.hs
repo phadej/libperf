@@ -1,6 +1,6 @@
 module Main (main) where
 
-import Test.Tasty.PerfBench
+import Test.Tasty.Bench
 
 fibo :: Int -> Integer
 fibo n = if n < 2 then toInteger n else fibo (n - 1) + fibo (n - 2)

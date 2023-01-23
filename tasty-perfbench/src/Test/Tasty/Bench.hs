@@ -14,13 +14,17 @@
 -- | This module is adapted fork of @Test.Tasty.Bench@ from @tasty-bench@
 -- package.
 --
--- Consider its documentation.
+-- Check its documentation.
 --
 -- This module has (almost) the same API but uses @libperf@ to measure instruction counts.
 -- They are more stable performance metric, which is useful while still
 -- working on the problem.
 --
-module Test.Tasty.PerfBench
+-- The module is named the same so you can easily switch from using
+-- tasty-bench to tasty-perfbench by only switching a @build-depends@
+-- in your @.cabal@ file.
+--
+module Test.Tasty.Bench
   (
   -- * Running 'Benchmark'
     defaultMain
@@ -276,7 +280,7 @@ measure _benchMode (Benchmarkable act) = do
   act
   act
 
-  -- run once, twice and thrice
+  -- run once
   -- and to a regression
   -- to cut off as much of framework effect as possible.
   LibPerf.perfGroupReset perfGroupHandle
@@ -284,27 +288,14 @@ measure _benchMode (Benchmarkable act) = do
   LibPerf.perfGroupEnable perfGroupHandle
   act
   LibPerf.perfGroupDisable perfGroupHandle
-  result1 <- LibPerf.perfGroupRead perfGroupHandle
-
-  LibPerf.perfGroupReset perfGroupHandle
-  performGC
-  LibPerf.perfGroupEnable perfGroupHandle
-  act
-  act
-  LibPerf.perfGroupDisable perfGroupHandle
-  result2 <- LibPerf.perfGroupRead perfGroupHandle
-
-  let monus :: Word64 -> Word64 -> Word64
-      monus a b = if a > b then a - b else 0
-
-  let diff = monus <$> result2 <*> result1
+  result <- LibPerf.perfGroupRead perfGroupHandle
 
   let meas = Measurement
-        { measInstructions = rInstructions diff
-        , measBranchTotal  = rBranchInstructions diff
-        , measBranchMisses = rBranchMisses diff
-        , measCacheTotal   = rCacheReferences diff
-        , measCacheMisses  = rCacheMisses diff
+        { measInstructions = rInstructions result
+        , measBranchTotal  = rBranchInstructions result
+        , measBranchMisses = rBranchMisses result
+        , measCacheTotal   = rCacheReferences result
+        , measCacheMisses  = rCacheMisses result
         }
   pure $! meas
 #else
