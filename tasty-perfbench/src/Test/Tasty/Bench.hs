@@ -6,6 +6,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE RecordWildCards #-}
 
 #if __GLASGOW_HASKELL__ <904
 #define OPAQUE NOINLINE
@@ -199,55 +200,19 @@ newtype Benchmarkable =
 
 showCount :: Word64 -> String
 showCount i
-  | t < 995   = printf "%3.0f  instr"  t
-  | t < 995e1 = printf "%4.2f Kinstr"  (t / 1e3)
-  | t < 995e2 = printf "%4.1f Kinstr"  (t / 1e3)
-  | t < 995e3 = printf "%3.0f  Kinstr" (t / 1e3)
-  | t < 995e4 = printf "%4.2f Minstr"  (t / 1e6)
-  | t < 995e5 = printf "%4.1f Minstr"  (t / 1e6)
-  | t < 995e6 = printf "%3.0f  Minstr" (t / 1e6)
-  | t < 995e7 = printf "%4.2f Ginstr"  (t / 1e9)
-  | t < 995e8 = printf "%4.1f Ginstr"  (t / 1e9)
-  | t < 995e9 = printf "%3.0f  Ginstr" (t / 1e9)
-  | otherwise = printf "%4.3f Tinstr"  (t / 1e12)
+  | t < 995   = printf "%3.0f   "  t
+  | t < 995e1 = printf "%4.2f K"  (t / 1e3)
+  | t < 995e2 = printf "%4.1f K"  (t / 1e3)
+  | t < 995e3 = printf "%3.0f  K" (t / 1e3)
+  | t < 995e4 = printf "%4.2f M"  (t / 1e6)
+  | t < 995e5 = printf "%4.1f M"  (t / 1e6)
+  | t < 995e6 = printf "%3.0f  M" (t / 1e6)
+  | t < 995e7 = printf "%4.2f G"  (t / 1e9)
+  | t < 995e8 = printf "%4.1f G"  (t / 1e9)
+  | t < 995e9 = printf "%3.0f  G" (t / 1e9)
+  | otherwise = printf "%4.3f T"  (t / 1e12)
   where
     t = word64ToDouble i
-
-showBranches :: Word64 -> Word64 -> String
-showBranches i j
-  | t < 995   = printf "%2.0f%% = %3.0f / %3.0f  branch misses"  r s          t
-  | t < 995e1 = printf "%2.0f%% = %4.2f / %4.2f Kbranch misses"  r (s / 1e3)  (t / 1e3)
-  | t < 995e2 = printf "%2.0f%% = %4.1f / %4.1f Kbranch misses"  r (s / 1e3)  (t / 1e3)
-  | t < 995e3 = printf "%2.0f%% = %3.0f / %3.0f  Kbranch misses" r (s / 1e3)  (t / 1e3)
-  | t < 995e4 = printf "%2.0f%% = %4.2f / %4.2f Mbranch misses"  r (s / 1e6)  (t / 1e6)
-  | t < 995e5 = printf "%2.0f%% = %4.1f / %4.1f Mbranch misses"  r (s / 1e6)  (t / 1e6)
-  | t < 995e6 = printf "%2.0f%% = %3.0f / %3.0f  Mbranch misses" r (s / 1e6)  (t / 1e6)
-  | t < 995e7 = printf "%2.0f%% = %4.2f / %4.2f Gbranch misses"  r (s / 1e9)  (t / 1e9)
-  | t < 995e8 = printf "%2.0f%% = %4.1f / %4.1f Gbranch misses"  r (s / 1e9)  (t / 1e9)
-  | t < 995e9 = printf "%2.0f%% = %3.0f / %3.0f  Gbranch misses" r (s / 1e9)  (t / 1e9)
-  | otherwise = printf "%2.0f%% = %4.3f / %4.3f Tbranch misses"  r (s / 1e12) (t / 1e12)
-  where
-    t = word64ToDouble i
-    s = word64ToDouble j
-    r = s / (max 1 t)
-
-showCaches :: Word64 -> Word64 -> String
-showCaches i j
-  | t < 995   = printf "%2.0f%% = %3.0f / %3.0f  cache misses"  r s          t
-  | t < 995e1 = printf "%2.0f%% = %4.2f / %4.2f Kcache misses"  r (s / 1e3)  (t / 1e3)
-  | t < 995e2 = printf "%2.0f%% = %4.1f / %4.1f Kcache misses"  r (s / 1e3)  (t / 1e3)
-  | t < 995e3 = printf "%2.0f%% = %3.0f / %3.0f  Kcache misses" r (s / 1e3)  (t / 1e3)
-  | t < 995e4 = printf "%2.0f%% = %4.2f / %4.2f Mcache misses"  r (s / 1e6)  (t / 1e6)
-  | t < 995e5 = printf "%2.0f%% = %4.1f / %4.1f Mcache misses"  r (s / 1e6)  (t / 1e6)
-  | t < 995e6 = printf "%2.0f%% = %3.0f / %3.0f  Mcache misses" r (s / 1e6)  (t / 1e6)
-  | t < 995e7 = printf "%2.0f%% = %4.2f / %4.2f Gcache misses"  r (s / 1e9)  (t / 1e9)
-  | t < 995e8 = printf "%2.0f%% = %4.1f / %4.1f Gcache misses"  r (s / 1e9)  (t / 1e9)
-  | t < 995e9 = printf "%2.0f%% = %3.0f / %3.0f  Gcache misses" r (s / 1e9)  (t / 1e9)
-  | otherwise = printf "%2.0f%% = %4.3f / %4.3f Tcache misses"  r (s / 1e12) (t / 1e12)
-  where
-    t = word64ToDouble i
-    s = word64ToDouble j
-    r = 100 * s / (max 1 t)
 
 data Measurement = Measurement
   { measInstructions :: !Word64 -- ^ instructions count
@@ -260,12 +225,16 @@ data Measurement = Measurement
 type Estimate = Measurement
 
 prettyEstimate :: Estimate -> String
-prettyEstimate m = showCount (measInstructions m)
+prettyEstimate m = showCount (measInstructions m) ++ " instructions"
 
 prettyExtras :: Estimate -> String
-prettyExtras m =
-    "\n" ++ showBranches (measBranchTotal m)  (measBranchMisses m) ++
-    "\n" ++ showCaches (measCacheTotal m)  (measCacheMisses m)
+prettyExtras Measurement {..}=
+    "\n" ++ showCount measBranchTotal ++ " branch instructions" ++
+    "\n" ++ showCount measBranchMisses ++ " branch misspredictions" ++ printf " (%.01f%%)" (ratio measBranchMisses measBranchTotal) ++
+    "\n" ++ showCount measCacheTotal ++ " cache references" ++
+    "\n" ++ showCount measCacheMisses ++ " cache misses" ++ printf " (%.01f%%)" (ratio measCacheMisses measCacheTotal)
+  where
+    ratio a b = 100 * word64ToDouble a / word64ToDouble (max 1 b)
 
 data WithLoHi a = WithLoHi
   !a      -- payload
