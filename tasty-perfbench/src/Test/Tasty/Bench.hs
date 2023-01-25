@@ -13,9 +13,7 @@
 #endif
 
 -- | This module is adapted fork of @Test.Tasty.Bench@ from @tasty-bench@
--- package.
---
--- Check its documentation.
+-- package. Check its documentation.
 --
 -- This module has (almost) the same API but uses @libperf@ to measure instruction counts.
 -- They are more stable performance metric, which is useful while still
@@ -24,6 +22,36 @@
 -- The module is named the same so you can easily switch from using
 -- tasty-bench to tasty-perfbench by only switching a @build-depends@
 -- in your @.cabal@ file.
+--
+-- The 'Benchmarkable' is run /only once/.
+-- There will be about 4000-5000 additional instructions counted in.
+--
+-- This module isn't great for "nanobenchmarks".
+-- The reason to measure only once is to have proper values for branch misspredictions and cache misses. Their counts aren't linear in iterations.
+-- In other words: measurements are made cold. If you need hot measurements, make the 'Benchmarkable' do more work.
+--
+-- You may include
+--
+-- @
+-- , 'bench' "id ()"     $ 'whnf' id ()
+-- , 'bench' "Just True" $ 'nf' Just True
+-- @
+--
+-- in your benchmark suite to measure the "does (almost) nothing" operation(s) on your system to get an idea of what is the base level.
+-- (On my machine both use 5.6K instructions).
+--
+-- Using performance monitoring functionality requires additional privileges.
+-- Probably easiest way is to:
+--
+-- @
+-- sudo sh -c 'echo 1 | tee \/proc\/sys\/kernel\/perf_event_paranoid'
+-- @
+--
+-- which allows per-process performance monitoring only and excludes system wide performance monitoring.
+-- That is enough for @tasty-perfbench@ to do its job.
+-- (@libperf@ also counts events happening in kernel space).
+-- See https://www.kernel.org/doc/html/latest/admin-guide/perf-security.html
+-- for more information.
 --
 module Test.Tasty.Bench
   (
@@ -121,7 +149,7 @@ instance Applicative R where
 
     R f1 f2 f3 f4 f5 <*> R x1 x2 x3 x4 x5 =
         R (f1 x1) (f2 x2) (f3 x3) (f4 x4) (f5 x5)
-        
+
 perfGroupHandle :: LibPerf.PerfGroupHandle R
 perfGroupHandle = unsafePerformIO $
     LibPerf.perfGroupOpen (R LibPerf.HwInstructions LibPerf.HwBranchInstructions LibPerf.HwBranchMisses LibPerf.HwCacheReferences LibPerf.HwCacheMisses)
@@ -245,10 +273,6 @@ data WithLoHi a = WithLoHi
 measure :: BenchMode -> Benchmarkable -> IO Measurement
 #ifdef MIN_VERSION_libperf
 measure _benchMode (Benchmarkable act) = do
-  -- force it twice, to warm up caches and branch predictor.
-  act
-  act
-
   -- run once
   -- and to a regression
   -- to cut off as much of framework effect as possible.

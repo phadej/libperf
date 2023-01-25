@@ -12,5 +12,6 @@ main = defaultMain
     , bench "tenth"     $ whnf fibo 10
     , bench "twentieth" $ whnf fibo 20
     , bench "id ()"     $ whnf id ()
+    , bench "Just True" $ nf Just True
     ]
   ]

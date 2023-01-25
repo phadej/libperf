@@ -27,20 +27,21 @@ module LibPerf (
     perfHasCapability,
 ) where
 
-import Prelude (IO, Functor (fmap), Maybe (..), Monad (..), Int, Bool, Eq, (==), (/=), (<), Show, ($), fail, fromIntegral, (+), snd, (*))
-import Data.Traversable (Traversable (traverse))
-import Control.Applicative (Applicative(pure, (<*>)))
+import Control.Applicative   (Applicative (pure, (<*>)))
 import Control.Exception     (bracket)
 import Control.Monad         (unless)
 import Data.Foldable         (traverse_)
 import Data.IORef            (modifyIORef', newIORef, readIORef, writeIORef)
-import Data.Traversable      (mapAccumL)
+import Data.Traversable      (Traversable (traverse), mapAccumL)
 import Data.Word             (Word64)
 import Foreign.C.Error       (throwErrnoIf, throwErrnoIf_)
 import Foreign.C.Types       (CInt (..))
 import Foreign.Marshal.Alloc (allocaBytes)
 import Foreign.Marshal.Array (peekArray)
 import Foreign.Ptr           (Ptr)
+import Prelude
+       (Bool, Eq, Functor (fmap), IO, Int, Maybe (..), Monad (..), Show, fail,
+       fromIntegral, snd, ($), (*), (+), (/=), (<), (==))
 
 -- | Available performance counters.
 --

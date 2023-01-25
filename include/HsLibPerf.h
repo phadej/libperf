@@ -37,6 +37,8 @@ static inline int HsLibPerfOpen(enum HsPerfCounter c, int group_fd, int format_g
   pe.size = sizeof(struct perf_event_attr);
   pe.disabled = 1;
   pe.exclude_hv = 1;
+  /* if we exclude kernel events, we don't need additional priveleges */
+  /* pe.exclude_kernel = 1; */
 
   if (format_group) {
     pe.read_format = PERF_FORMAT_GROUP;
