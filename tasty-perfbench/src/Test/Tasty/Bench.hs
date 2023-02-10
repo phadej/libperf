@@ -266,7 +266,7 @@ prettyEstimate m ms = intercalate "\n"
     , line  measCacheTotal "cache references"
     , line2 measCacheTotal measCacheMisses "cache misses"
     , line  measMajorGC "major gcs"
-    , line  measMinorGC "major gcs"
+    , line  measMinorGC "minor gcs"
     ]
   where
     line f msg =
