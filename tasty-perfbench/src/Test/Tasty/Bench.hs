@@ -112,6 +112,7 @@ import Data.IntMap.Strict (IntMap)
 import Data.Sequence (Seq, (<|))
 import qualified Data.Sequence as Seq
 import qualified Data.Set as S
+import qualified Data.Map as M
 
 import Test.Tasty hiding (defaultMain)
 import qualified Test.Tasty
@@ -779,8 +780,8 @@ instance IsOption (Maybe BaselinePath) where
 consoleBenchReporter :: Ingredient
 consoleBenchReporter = modifyConsoleReporter [Option (Proxy :: Proxy (Maybe BaselinePath))] $ \opts -> do
   baseline <- case lookupOption opts of
-    Nothing -> pure S.empty
-    Just (BaselinePath path) -> S.fromList . joinQuotedFields . lines <$> (readFile path >>= evaluate . force)
+    Nothing -> pure M.empty
+    Just (BaselinePath path) -> mkBaseline . csvDecodeTable <$> (readFile path >>= evaluate . force)
   let pretty = prettyEstimate
   pure $ \name mDepR r -> case safeRead (resultDescription r) of
     Nothing  -> r
@@ -800,22 +801,14 @@ consoleBenchReporter = modifyConsoleReporter [Option (Proxy :: Proxy (Maybe Base
               ( ratio >= depLowerBound && ratio <= depUpperBound
               , printf ", %.2fx" ratio
               )
-
--- | A well-formed CSV entry contains an even number of quotes: 0, 2 or more.
-joinQuotedFields :: [String] -> [String]
-joinQuotedFields [] = []
-joinQuotedFields (x : xs)
-  | areQuotesBalanced x = x : joinQuotedFields xs
-  | otherwise = case span areQuotesBalanced xs of
-    (_, [])      -> [] -- malformed CSV
-    (ys, z : zs) -> unlines (x : ys ++ [z]) : joinQuotedFields zs
   where
-    areQuotesBalanced = even . length . filter (== '"')
+    mkBaseline :: [[String]] -> M.Map String [String]
+    mkBaseline table = M.fromList [ (name, row) | name:row <- table ]
 
 estValue :: Estimate -> Double
 estValue = word64ToDouble . measInstructions
 
-compareVsBaseline :: S.Set String -> TestName -> Estimate -> Maybe Double
+compareVsBaseline :: M.Map String [String] -> TestName -> Estimate -> Maybe Double
 compareVsBaseline baseline name m = case mOld of
   Nothing -> Nothing
   Just oldTime -> Just $ int64ToDouble time / int64ToDouble oldTime
@@ -824,20 +817,10 @@ compareVsBaseline baseline name m = case mOld of
 
     mOld :: Maybe Int64
     mOld = do
-      let prefix = encodeCsv name ++ ","
-      (line, furtherLines) <- S.minView $ snd $ S.split prefix baseline
-
-      case S.minView furtherLines of
-        Nothing -> pure ()
-        Just (nextLine, _) -> case stripPrefix prefix nextLine of
-          Nothing -> pure ()
-          -- If there are several lines matching prefix, skip them all.
-          -- Should not normally happen, 'csvReporter' prohibits repeating test names.
-          Just{}  -> Nothing
-
-      rest <- stripPrefix prefix line
-      let timeCell = takeWhile (/= ',') rest
-      safeRead timeCell
+      case M.lookup name baseline of
+        Nothing       -> Nothing
+        Just []       -> Nothing
+        Just (cell:_) -> safeRead cell
 
 formatSlowDown :: Maybe Double -> String
 formatSlowDown Nothing = ""
@@ -1001,3 +984,49 @@ locateBenchmark [] = IntLit 1
 locateBenchmark path
   = foldl1' And
   $ zipWith (\i name -> Patterns.EQ (Field (Sub NF (IntLit i))) (StringLit name)) [0..] path
+
+-------------------------------------------------------------------------------
+-- Csv: Decoding
+-------------------------------------------------------------------------------
+
+-- | Decode CSV trying to recover as much as possible.
+csvDecodeTable :: String -> [[String]]
+csvDecodeTable []                 = []
+csvDecodeTable ('\r' : '\n' : cs) = csvDecodeTable cs
+csvDecodeTable ('\r'        : cs) = csvDecodeTable cs
+csvDecodeTable ('\n'        : cs) = csvDecodeTable cs
+csvDecodeTable (','         : cs) = csvDecodeField ("" :) cs
+csvDecodeTable ('"'         : cs) = csvDecodeEscapedField id id cs
+csvDecodeTable (c           : cs) = csvDecodeUnescapedField (c :) id cs
+
+csvDecodeField :: ([String] -> [String]) -> String -> [[String]]
+csvDecodeField accR ('\r' : '\n' : cs) = accR [""] : csvDecodeTable cs
+csvDecodeField accR ('\r'        : cs) = accR [""] : csvDecodeTable cs
+csvDecodeField accR ('\n'        : cs) = accR [""] : csvDecodeTable cs
+csvDecodeField accR ('"'         : cs) = csvDecodeEscapedField id accR cs
+csvDecodeField accR (','         : cs) = csvDecodeField (accR . ("" :)) cs
+csvDecodeField accR (c           : cs) = csvDecodeUnescapedField (c :) accR cs
+csvDecodeField accR []                 = [accR []]
+
+csvDecodeEscapedField :: (String -> String) -> ([String] -> [String]) -> String -> [[String]]
+csvDecodeEscapedField accF accR ('"' : '"' : cs) = csvDecodeEscapedField (accF . ('"' :)) accR cs
+csvDecodeEscapedField accF accR ('"' : cs)       = csvDecodeAfterEscapedField (accR . (accF "" :)) cs
+csvDecodeEscapedField accF accR (c   : cs)       = csvDecodeEscapedField (accF . (c :))   accR cs
+csvDecodeEscapedField accF accR []               = [accR [accF ""]]
+
+-- expected: EOF, EOL or ,
+csvDecodeAfterEscapedField :: ([String] -> [String]) -> String -> [[String]]
+csvDecodeAfterEscapedField accR [] = [accR []]
+csvDecodeAfterEscapedField accR ('\r' : '\n' : cs) = accR [] : csvDecodeTable cs
+csvDecodeAfterEscapedField accR ('\r'        : cs) = accR [] : csvDecodeTable cs
+csvDecodeAfterEscapedField accR ('\n'        : cs) = accR [] : csvDecodeTable cs
+csvDecodeAfterEscapedField accR (','         : cs) = csvDecodeField accR cs
+csvDecodeAfterEscapedField accR (_           : cs) = csvDecodeAfterEscapedField accR cs
+
+csvDecodeUnescapedField :: (String -> String) -> ([String] -> [String]) -> String -> [[String]]
+csvDecodeUnescapedField accF accR (','         : cs) = csvDecodeField (accR . (accF "" :)) cs
+csvDecodeUnescapedField accF accR ('\r' : '\n' : cs) = accR [accF ""] : csvDecodeTable cs
+csvDecodeUnescapedField accF accR ('\r'        : cs) = accR [accF ""] : csvDecodeTable cs
+csvDecodeUnescapedField accF accR ('\n'        : cs) = accR [accF ""] : csvDecodeTable cs
+csvDecodeUnescapedField accF accR (c           : cs) = csvDecodeUnescapedField (accF . (c :)) accR cs
+csvDecodeUnescapedField accF accR []                 = [accR [accF ""]]
