@@ -101,6 +101,7 @@ import Data.Proxy ( Proxy(..) )
 import Data.Traversable (forM)
 import Data.Word (Word64)
 import GHC.Conc
+import GHC.Stats (RTSStats, gcs, major_gcs, getRTSStats, getRTSStatsEnabled)
 import GHC.IO.Encoding ( utf8, setLocaleEncoding )
 import System.Exit ( exitFailure )
 import System.IO ( Handle, utf8, hClose, hSetBuffering, hPutStrLn, openFile, stderr, BufferMode(LineBuffering), IOMode(WriteMode) )
@@ -151,10 +152,12 @@ instance Applicative R where
     R f1 f2 f3 f4 f5 <*> R x1 x2 x3 x4 x5 =
         R (f1 x1) (f2 x2) (f3 x3) (f4 x4) (f5 x5)
 
+#ifdef MIN_VERSION_libperf
 perfGroupHandle :: LibPerf.PerfGroupHandle R
 perfGroupHandle = unsafePerformIO $
     LibPerf.perfGroupOpen (R LibPerf.HwInstructions LibPerf.HwBranchInstructions LibPerf.HwBranchMisses LibPerf.HwCacheReferences LibPerf.HwCacheMisses)
 {-# OPAQUE perfGroupHandle #-}
+#endif
 
 data BenchMode = Instructions -- ^ Measure CPU time.
 
@@ -249,21 +252,48 @@ data Measurement = Measurement
   , measBranchMisses :: !Word64
   , measCacheTotal   :: !Word64
   , measCacheMisses  :: !Word64
+  , measMajorGC      :: !Word64
+  , measMinorGC      :: !Word64
   } deriving (Show, Read)
 
 type Estimate = Measurement
 
-prettyEstimate :: Estimate -> String
-prettyEstimate m = showCount (measInstructions m) ++ " instructions"
-
-prettyExtras :: Estimate -> String
-prettyExtras Measurement {..}=
-    "\n" ++ showCount measBranchTotal ++ " branch instructions" ++
-    "\n" ++ showCount measBranchMisses ++ " branch misspredictions" ++ printf " (%.01f%%)" (ratio measBranchMisses measBranchTotal) ++
-    "\n" ++ showCount measCacheTotal ++ " cache references" ++
-    "\n" ++ showCount measCacheMisses ++ " cache misses" ++ printf " (%.01f%%)" (ratio measCacheMisses measCacheTotal)
+prettyEstimate :: Estimate -> Maybe Estimate -> String
+prettyEstimate m ms = intercalate "\n"
+    [ line  measInstructions "instructions"
+    , line  measBranchTotal "branch instructions"
+    , line2 measBranchTotal measBranchMisses "branch misspredictions"
+    , line  measCacheTotal "cache references"
+    , line2 measCacheTotal measCacheMisses "cache misses"
+    , line  measMajorGC "major gcs"
+    , line  measMinorGC "major gcs"
+    ]
   where
-    ratio a b = 100 * word64ToDouble a / word64ToDouble (max 1 b)
+    line f msg =
+      let pfx = showCount (f m) ++ " " ++ msg
+      in case ms of
+        Nothing -> pfx
+        Just n -> pfx ++ replicate (40 - length pfx) ' ' ++ printf "  base: %s, change: %+0.1f%%" (showCount y) (percentDiff y x)
+          where
+            x = f m
+            y = f n
+
+    line2 f g msg =
+      let pfx = showCount (g m) ++ " " ++ msg ++ printf " (%.01f%%)" (ratio g f)
+      in case ms of
+        Nothing -> pfx
+        Just n -> pfx ++ replicate (40 - length pfx) ' ' ++ printf "  base: %s" (showCount y)
+          where
+            y = g n
+
+    ratio a b = percent (a m) (b m)
+    percent a b = 100 * word64ToDouble a / word64ToDouble (max 1 b)
+
+    percentDiff _ 0 = 0
+    percentDiff a b = 100 * (b' - a') / b'
+      where
+        a' = word64ToDouble a
+        b' = word64ToDouble b
 
 data WithLoHi a = WithLoHi
   !a      -- payload
@@ -279,9 +309,11 @@ measure _benchMode (Benchmarkable act) = do
   -- to cut off as much of framework effect as possible.
   LibPerf.perfGroupReset perfGroupHandle
   performGC
+  (majGC, minGC) <- rtsStats
   LibPerf.perfGroupEnable perfGroupHandle
   act
   LibPerf.perfGroupDisable perfGroupHandle
+  (majGC', minGC') <- rtsStats
   result <- LibPerf.perfGroupRead perfGroupHandle
 
   let meas = Measurement
@@ -290,6 +322,8 @@ measure _benchMode (Benchmarkable act) = do
         , measBranchMisses = rBranchMisses result
         , measCacheTotal   = rCacheReferences result
         , measCacheMisses  = rCacheMisses result
+        , measMinorGC      = minGC' - minGC
+        , measMajorGC      = majGC' - majGC
         }
   pure $! meas
 #else
@@ -299,8 +333,21 @@ measure _ _ = pure Measurement
         , measBranchMisses = 0
         , measCacheTotal   = 0
         , measCacheMisses  = 0
+        , measMinorGC      = 0
+        , measMajorGC      = 0
         }
 #endif
+
+rtsStats :: IO (Word64, Word64)
+rtsStats = do
+    enabled <- getRTSStatsEnabled
+    if enabled
+    then do
+        stats <- getRTSStats
+        let majGC = major_gcs stats
+        let allGC = gcs stats
+        return (fromIntegral majGC, fromIntegral (allGC - majGC))
+    else return (0, 0)
 
 instance IsTest Benchmarkable where
   testOptions = pure
@@ -743,18 +790,17 @@ csvOutput h = traverse_ $ \(name, tv) -> do
   case safeRead (resultDescription r) of
     Nothing -> pure ()
     Just (WithLoHi est _ _) -> do
-      msg <- formatMessage $ show (measInstructions est)
-      hPutStrLn h (encodeCsv name ++ ',' : msg)
-
-encodeCsv :: String -> String
-encodeCsv xs
-  | any (`elem` xs) ",\"\n\r"
-  = '"' : go xs -- opening quote
-  | otherwise = xs
-  where
-    go [] = '"' : [] -- closing quote
-    go ('"' : ys) = '"' : '"' : go ys
-    go (y : ys) = y : go ys
+      msg <- formatMessage $ csvEncodeRow
+          [ name
+          , show (measInstructions est)
+          , show (measBranchTotal est)
+          , show (measBranchMisses est)
+          , show (measCacheTotal est)
+          , show (measCacheMisses est)
+          , show (measMajorGC est)
+          , show (measMinorGC est)
+          ]
+      hPutStrLn h msg
 
 -- | A path to read baseline results in CSV format, populated by @--baseline@.
 --
@@ -782,18 +828,30 @@ consoleBenchReporter = modifyConsoleReporter [Option (Proxy :: Proxy (Maybe Base
   baseline <- case lookupOption opts of
     Nothing -> pure M.empty
     Just (BaselinePath path) -> mkBaseline . csvDecodeTable <$> (readFile path >>= evaluate . force)
-  let pretty = prettyEstimate
+
   pure $ \name mDepR r -> case safeRead (resultDescription r) of
     Nothing  -> r
     Just (WithLoHi est lowerBound upperBound) ->
       (if isAcceptable then id else forceFail)
-      r { resultDescription = pretty est ++ bcompareMsg ++ formatSlowDown mSlowDown ++ prettyExtras est }
+      r { resultDescription = prettyEstimate est baseline' }
       where
+        baseline' :: Maybe Estimate
+        baseline' = M.lookup name baseline >>= \cells -> case cells of
+          x1:x2:x3:x4:x5:x6:x7:_ -> pure Measurement
+            <*> safeRead x1
+            <*> safeRead x2
+            <*> safeRead x3
+            <*> safeRead x4
+            <*> safeRead x5
+            <*> safeRead x6
+            <*> safeRead x7
+          _ -> Nothing
+
         isAcceptable = isAcceptableVsBaseline && isAcceptableVsBcompare
         mSlowDown = compareVsBaseline baseline name est
         slowDown = fromMaybe 1 mSlowDown
         isAcceptableVsBaseline = slowDown >= lowerBound && slowDown <= upperBound
-        (isAcceptableVsBcompare, bcompareMsg) = case mDepR of
+        (isAcceptableVsBcompare, _bcompareMsg) = case mDepR of
           Nothing -> (True, "")
           Just (WithLoHi depR depLowerBound depUpperBound) -> case safeRead (resultDescription depR) of
             Nothing -> (True, "")
@@ -822,6 +880,7 @@ compareVsBaseline baseline name m = case mOld of
         Just []       -> Nothing
         Just (cell:_) -> safeRead cell
 
+{-
 formatSlowDown :: Maybe Double -> String
 formatSlowDown Nothing = ""
 formatSlowDown (Just ratio) = case percents `compare` 0 of
@@ -831,6 +890,7 @@ formatSlowDown (Just ratio) = case percents `compare` 0 of
   where
     percents :: Int64
     percents = truncate ((ratio - 1) * 100)
+-}
 
 forceFail :: Result -> Result
 forceFail r = r { resultOutcome = Failure TestFailed, resultShortDescription = "FAIL" }
@@ -984,6 +1044,26 @@ locateBenchmark [] = IntLit 1
 locateBenchmark path
   = foldl1' And
   $ zipWith (\i name -> Patterns.EQ (Field (Sub NF (IntLit i))) (StringLit name)) [0..] path
+
+-------------------------------------------------------------------------------
+-- Csv: Encoding
+-------------------------------------------------------------------------------
+
+csvEncodeRow :: [String] -> String
+csvEncodeRow []     = ""
+csvEncodeRow [x]    = csvEncodeField x
+csvEncodeRow (x:xs) = csvEncodeField x ++ "," ++ csvEncodeRow xs
+
+csvEncodeField :: String -> String
+csvEncodeField xs
+  | any (`elem` xs) ",\"\n\r"
+  = '"' : go xs -- opening quote
+
+  | otherwise = xs
+  where
+    go []         = '"' : []
+    go ('"' : ys) = '"' : '"' : go ys
+    go (y : ys)   = y : go ys
 
 -------------------------------------------------------------------------------
 -- Csv: Decoding
