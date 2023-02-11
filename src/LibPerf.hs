@@ -55,6 +55,8 @@ data PerfCounter
     | HwBranchMisses        -- ^ Mispredicted branch instructions.
     | HwRefCpuCycles        -- ^ Total cycles; not affected by CPU frequency scaling.
     | SwPageFaults          -- ^ This reports the number of page faults.
+    | SwPageFaultsMinor     -- ^ This counts the number of minor page faults.
+    | SwPageFaultsMajor     -- ^ This counts the number of major page faults.
     | SwDummy               -- ^ This is a placeholder event that counts nothing.
   deriving (Eq, Show)
 
@@ -84,6 +86,8 @@ perfCounterToCInt c = case c of
         HwBranchMisses       -> cLibPerf_HW_BRANCH_MISSES
         HwRefCpuCycles       -> cLibPerf_HW_REF_CPU_CYCLES
         SwPageFaults         -> cLibPerf_SW_PAGE_FAULTS
+        SwPageFaultsMinor    -> cLibPerf_SW_PAGE_FAULTS_MIN
+        SwPageFaultsMajor    -> cLibPerf_SW_PAGE_FAULTS_MAJ
         SwDummy              -> cLibPerf_SW_DUMMY
 
 -- | Close performance counter.
@@ -277,6 +281,12 @@ foreign import capi "HsLibPerf.h value HS_PERF_COUNT_HW_REF_CPU_CYCLES"
 
 foreign import capi "HsLibPerf.h value HS_PERF_COUNT_SW_PAGE_FAULTS"
     cLibPerf_SW_PAGE_FAULTS :: CInt
+
+foreign import capi "HsLibPerf.h value HS_PERF_COUNT_SW_PAGE_FAULTS_MIN"
+    cLibPerf_SW_PAGE_FAULTS_MIN :: CInt
+
+foreign import capi "HsLibPerf.h value HS_PERF_COUNT_SW_PAGE_FAULTS_MAJ"
+    cLibPerf_SW_PAGE_FAULTS_MAJ :: CInt
 
 foreign import capi "HsLibPerf.h value HS_PERF_COUNT_SW_DUMMY"
     cLibPerf_SW_DUMMY :: CInt

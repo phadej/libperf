@@ -23,6 +23,8 @@ enum HsPerfCounter {
   HS_PERF_COUNT_HW_BRANCH_MISSES,
   HS_PERF_COUNT_HW_REF_CPU_CYCLES,
   HS_PERF_COUNT_SW_PAGE_FAULTS,
+  HS_PERF_COUNT_SW_PAGE_FAULTS_MIN,
+  HS_PERF_COUNT_SW_PAGE_FAULTS_MAJ,
   HS_PERF_COUNT_SW_DUMMY
 };
 
@@ -85,6 +87,16 @@ static inline int HsLibPerfOpen(enum HsPerfCounter c, int group_fd, int format_g
   case HS_PERF_COUNT_SW_PAGE_FAULTS:
     pe.type = PERF_TYPE_SOFTWARE;
     pe.config = PERF_COUNT_SW_PAGE_FAULTS;
+    break;
+
+  case HS_PERF_COUNT_SW_PAGE_FAULTS_MIN:
+    pe.type = PERF_TYPE_SOFTWARE;
+    pe.config = PERF_COUNT_SW_PAGE_FAULTS_MIN;
+    break;
+
+  case HS_PERF_COUNT_SW_PAGE_FAULTS_MAJ:
+    pe.type = PERF_TYPE_SOFTWARE;
+    pe.config = PERF_COUNT_SW_PAGE_FAULTS_MAJ;
     break;
 
   case HS_PERF_COUNT_SW_DUMMY:
