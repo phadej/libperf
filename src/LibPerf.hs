@@ -41,7 +41,7 @@ import Foreign.Marshal.Array (peekArray)
 import Foreign.Ptr           (Ptr)
 import Prelude
        (Bool, Eq, Functor (fmap), IO, Int, Maybe (..), Monad (..), Show, fail,
-       fromIntegral, snd, ($), (*), (+), (/=), (<), (==))
+       fromIntegral, snd, ($), (*), (+), (/=), (<), (==), (++), show)
 
 -- | Available performance counters.
 --
@@ -54,6 +54,8 @@ data PerfCounter
     | HwBranchInstructions  -- ^ Retired branch instructions.
     | HwBranchMisses        -- ^ Mispredicted branch instructions.
     | HwRefCpuCycles        -- ^ Total cycles; not affected by CPU frequency scaling.
+    | SwPageFaults          -- ^ This reports the number of page faults.
+    | SwDummy               -- ^ This is a placeholder event that counts nothing.
   deriving (Eq, Show)
 
 newtype PerfHandle = PerfHandle CInt
@@ -81,6 +83,8 @@ perfCounterToCInt c = case c of
         HwBranchInstructions -> cLibPerf_HW_BRANCH_INSTRUCTIONS
         HwBranchMisses       -> cLibPerf_HW_BRANCH_MISSES
         HwRefCpuCycles       -> cLibPerf_HW_REF_CPU_CYCLES
+        SwPageFaults         -> cLibPerf_SW_PAGE_FAULTS
+        SwDummy              -> cLibPerf_SW_DUMMY
 
 -- | Close performance counter.
 perfClose :: PerfHandle -> IO ()
@@ -186,7 +190,7 @@ perfGroupRead :: Traversable t => PerfGroupHandle t -> IO (t Word64)
 perfGroupRead (PerfGroupHandle h len fds) =
     allocaBytes (8 * len1) $ \ptr -> do
         r <- throwErrnoIf (< 0) "read" $ cLibPerfRawRead h (fromIntegral len1) ptr
-        unless (fromIntegral r == 8 * len1) $ fail "read: didn't read enough"
+        unless (fromIntegral r == 8 * len1) $ fail $ "read: didn't read enough: " ++ show r
         res <- peekArray (1 + len) ptr
         case res of
             []   -> fail "perfGroupRead: panic peekArray returned empty list"
@@ -270,6 +274,12 @@ foreign import capi "HsLibPerf.h value HS_PERF_COUNT_HW_BRANCH_MISSES"
 
 foreign import capi "HsLibPerf.h value HS_PERF_COUNT_HW_REF_CPU_CYCLES"
     cLibPerf_HW_REF_CPU_CYCLES :: CInt
+
+foreign import capi "HsLibPerf.h value HS_PERF_COUNT_SW_PAGE_FAULTS"
+    cLibPerf_SW_PAGE_FAULTS :: CInt
+
+foreign import capi "HsLibPerf.h value HS_PERF_COUNT_SW_DUMMY"
+    cLibPerf_SW_DUMMY :: CInt
 
 -------------------------------------------------------------------------------
 -- FFI imports: procedures

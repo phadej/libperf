@@ -143,19 +143,26 @@ data R a = R
     , rBranchMisses       :: a
     , rCacheReferences    :: a
     , rCacheMisses        :: a
+    , rPageFaults         :: a
     }
   deriving (Functor, Foldable, Traversable)
 
 instance Applicative R where
-    pure x = R x x x x x
+    pure x = R x x x x x x
 
-    R f1 f2 f3 f4 f5 <*> R x1 x2 x3 x4 x5 =
-        R (f1 x1) (f2 x2) (f3 x3) (f4 x4) (f5 x5)
+    R f1 f2 f3 f4 f5 f6 <*> R x1 x2 x3 x4 x5 x6 =
+        R (f1 x1) (f2 x2) (f3 x3) (f4 x4) (f5 x5) (f6 x6)
 
 #ifdef MIN_VERSION_libperf
 perfGroupHandle :: LibPerf.PerfGroupHandle R
 perfGroupHandle = unsafePerformIO $
-    LibPerf.perfGroupOpen (R LibPerf.HwInstructions LibPerf.HwBranchInstructions LibPerf.HwBranchMisses LibPerf.HwCacheReferences LibPerf.HwCacheMisses)
+    LibPerf.perfGroupOpen $ R
+        LibPerf.HwInstructions
+        LibPerf.HwBranchInstructions
+        LibPerf.HwBranchMisses
+        LibPerf.HwCacheReferences
+        LibPerf.HwCacheMisses
+        LibPerf.SwPageFaults
 {-# OPAQUE perfGroupHandle #-}
 #endif
 
@@ -252,6 +259,7 @@ data Measurement = Measurement
   , measBranchMisses :: !Word64
   , measCacheTotal   :: !Word64
   , measCacheMisses  :: !Word64
+  , measPageFaults   :: !Word64
   , measMajorGC      :: !Word64
   , measMinorGC      :: !Word64
   } deriving (Show, Read)
@@ -265,6 +273,7 @@ prettyEstimate m ms = intercalate "\n"
     , line2 measBranchTotal measBranchMisses "branch misspredictions"
     , line  measCacheTotal "cache references"
     , line2 measCacheTotal measCacheMisses "cache misses"
+    , line  measPageFaults "page faults"
     , line  measMajorGC "major gcs"
     , line  measMinorGC "minor gcs"
     ]
@@ -322,6 +331,7 @@ measure _benchMode (Benchmarkable act) = do
         , measBranchMisses = rBranchMisses result
         , measCacheTotal   = rCacheReferences result
         , measCacheMisses  = rCacheMisses result
+        , measPageFaults   = rPageFaults result
         , measMinorGC      = minGC' - minGC
         , measMajorGC      = majGC' - majGC
         }
@@ -333,6 +343,7 @@ measure _ _ = pure Measurement
         , measBranchMisses = 0
         , measCacheTotal   = 0
         , measCacheMisses  = 0
+        , measPageFaults   = 0
         , measMinorGC      = 0
         , measMajorGC      = 0
         }
@@ -797,6 +808,7 @@ csvOutput h = traverse_ $ \(name, tv) -> do
           , show (measBranchMisses est)
           , show (measCacheTotal est)
           , show (measCacheMisses est)
+          , show (measPageFaults est)
           , show (measMajorGC est)
           , show (measMinorGC est)
           ]
@@ -837,7 +849,7 @@ consoleBenchReporter = modifyConsoleReporter [Option (Proxy :: Proxy (Maybe Base
       where
         baseline' :: Maybe Estimate
         baseline' = M.lookup name baseline >>= \cells -> case cells of
-          x1:x2:x3:x4:x5:x6:x7:_ -> pure Measurement
+          x1:x2:x3:x4:x5:x6:x7:x8:_ -> pure Measurement
             <*> safeRead x1
             <*> safeRead x2
             <*> safeRead x3
@@ -845,6 +857,7 @@ consoleBenchReporter = modifyConsoleReporter [Option (Proxy :: Proxy (Maybe Base
             <*> safeRead x5
             <*> safeRead x6
             <*> safeRead x7
+            <*> safeRead x8
           _ -> Nothing
 
         isAcceptable = isAcceptableVsBaseline && isAcceptableVsBcompare
