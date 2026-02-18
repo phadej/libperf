@@ -953,13 +953,13 @@ modifyConsoleReporter desc' iof = TestReporter (desc ++ desc') $ \opts tree ->
 testNameSeqs :: OptionSet -> TestTree -> [Seq TestName]
 testNameSeqs = foldTestTree trivialFold
   { foldSingle = const $ const . (:[]) . Seq.singleton
-  , foldGroup  = const $ map . (<|)
+  , foldGroup  = const $ (. concat) . map . (<|)
   }
 
 testNamesAndDeps :: IntMap (Seq TestName) -> OptionSet -> TestTree -> [(TestName, Unique (WithLoHi IM.Key))]
 testNamesAndDeps im = foldTestTree trivialFold
   { foldSingle = const $ const . (: []) . (, mempty)
-  , foldGroup  = const $ map . first . (++) . (++ ".")
+  , foldGroup  = const $ (. concat) . map . first . (++) . (++ ".")
   , foldAfter  = const foldDeps
   }
   where

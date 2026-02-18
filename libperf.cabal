@@ -14,18 +14,17 @@ bug-reports:        https://github.com/haskellari/splitmix/issues
 category:           Performance, Benchmarking
 build-type:         Simple
 tested-with:
-  GHC ==7.6.3
-   || ==7.8.4
-   || ==7.10.3
-   || ==8.0.2
-   || ==8.2.2
-   || ==8.4.4
-   || ==8.6.5
+  GHC ==8.6.5
    || ==8.8.4
    || ==8.10.7
    || ==9.0.2
    || ==9.2.5
    || ==9.4.4
+   || ==9.6.7
+   || ==9.8.4
+   || ==9.10.2
+   || ==9.12.2
+   || ==9.14.1
 
 extra-source-files:
   Changelog.md
@@ -41,7 +40,7 @@ library
   hs-source-dirs:    src
   include-dirs:      include
   exposed-modules:   LibPerf
-  build-depends:     base >=4.6 && <4.18
+  build-depends:     base >=4.12 && <4.23
   other-extensions:  CApiFFI
   pkgconfig-depends: libcap
 

@@ -21,14 +21,17 @@ description:
 
 extra-source-files: changelog.md
 tested-with:
-  GHC ==8.2.2
-   || ==8.4.4
-   || ==8.6.5
+  GHC ==8.6.5
    || ==8.8.4
    || ==8.10.7
    || ==9.0.2
    || ==9.2.5
    || ==9.4.4
+   || ==9.6.7
+   || ==9.8.4
+   || ==9.10.2
+   || ==9.12.2
+   || ==9.14.1
 
 source-repository head
   type:     git
@@ -41,11 +44,11 @@ library
   default-language: Haskell2010
   ghc-options:      -O2 -Wall -fno-warn-unused-imports
   build-depends:
-    , base        >=4.10    && <4.18
+    , base        >=4.10    && <4.23
     , code-page   >=0.2.1   && <0.3
-    , containers  >=0.5.7.1 && <0.7
-    , deepseq     >=1.4.2.0 && <1.5
-    , tasty       >=1.4.3   && <1.5
+    , containers  >=0.5.7.1 && <0.9
+    , deepseq     >=1.4.4.0 && <1.6
+    , tasty       >=1.5.3   && <1.6
 
   if os(linux)
     build-depends: libperf >=0.1 && <0.2
