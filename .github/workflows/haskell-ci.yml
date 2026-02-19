@@ -100,6 +100,12 @@ jobs:
           apt-get update
           apt-get install -y --no-install-recommends gnupg ca-certificates dirmngr curl git software-properties-common libtinfo5
           apt-get install -y libcap-dev
+          apt-get install -y perf
+
+      - name: Perf test
+        run: |
+           perf stat -e cycles:u,instructions:u /bin/echo 123
+
       - name: Install GHCup
         run: |
           mkdir -p "$HOME/.ghcup/bin"
