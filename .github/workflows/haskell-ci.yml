@@ -98,7 +98,7 @@ jobs:
       - name: apt-get install
         run: |
           apt-get update
-          apt-get install -y --no-install-recommends gnupg ca-certificates dirmngr curl git software-properties-common libtinfo5
+          apt-get install -y --no-install-recommends gnupg ca-certificates dirmngr curl git software-properties-common 
           apt-get install -y libcap-dev
           apt-get install -y linux-tools-generic
           apt-get install -y linux-tools-azure linux-cloud-tools-azure
