@@ -32,7 +32,7 @@ jobs:
     timeout-minutes:
       60
     container:
-      image: buildpack-deps:jammy
+      image: buildpack-deps:noble
       options: --cap-add CAP_PERFMON
     continue-on-error: ${{ matrix.allow-failure }}
     strategy:
