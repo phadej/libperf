@@ -100,6 +100,7 @@ jobs:
           apt-get update
           apt-get install -y --no-install-recommends gnupg ca-certificates dirmngr curl git software-properties-common libtinfo5
           apt-get install -y libcap-dev
+          apt-get install -y linux-tools-generic
 
       - name: Perf test
         run: |
