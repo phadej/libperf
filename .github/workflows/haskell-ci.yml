@@ -32,7 +32,7 @@ jobs:
     timeout-minutes:
       60
     container:
-      image: buildpack-deps:noble
+      image: buildpack-deps:questing
       options: --cap-add CAP_PERFMON
     continue-on-error: ${{ matrix.allow-failure }}
     strategy:
@@ -100,8 +100,7 @@ jobs:
           apt-get update
           apt-get install -y --no-install-recommends gnupg ca-certificates dirmngr curl git software-properties-common 
           apt-get install -y libcap-dev
-          apt-get install -y linux-tools-generic
-          apt-get install -y linux-tools-azure linux-cloud-tools-azure
+          apt-get install -y linux-perf
 
       - name: Perf test
         run: |
