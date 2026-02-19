@@ -1,0 +1,33 @@
+name: perf
+
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  perf:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Install perf
+      run: |
+        sudo apt-get update && sudo apt-get install linux-tools-common \
+
+    - name: Enable perf event paranoid flag
+      run: sudo sysctl kernel.perf_event_paranoid=1
+
+    - name: Set Kernel KPTR  Restriction
+      run: sudo sysctl kernel.kptr_restrict=0
+
+    - name: See cpu Info
+      run: cat /proc/cpuinfo
+
+    - name: Show perf info events
+      run: cat /boot/config-$(uname -r) | grep PERF_EVENTS
+
+    - name: Show perf list
+      run: sudo perf list
+
+    - name: Run perf
+      run: sudo perf stat -e cycles:u,instructions:u /bin/echo 123 
